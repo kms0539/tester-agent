@@ -223,7 +223,7 @@ function taskSteps(spec, scenario) {
 export async function develop(ctx, key, spec, scenario) {
   const state = ctx.data.tasks[key];
   const manualReworks = spec.maxManualRework ?? scenario.maxManualRework ?? 1;
-  let reworks = 0;
+  let reworks = 0, continuations = 0;
 
   for (;;) {
     const result = await runPipeline(ctx, state.id, spec.maxAutoRework ?? 1, spec.files ?? []);
@@ -238,6 +238,13 @@ export async function develop(ctx, key, spec, scenario) {
       await clarify(ctx, state.id, result.question, spec.clarification);
       state.clarified = true;
       ctx.log("  ↪ AI 질문에 시나리오의 보충 설명으로 답하고 이어서 개발");
+      continue;
+    }
+
+    // 큰 작업은 AI가 앞부분만 쓰고 '남은 단계'를 남긴다. 사람처럼 이어서 개발을 다시 누른다.
+    if (result.latestQaOutcome === "pass" && /남은 구현 단계/.test(result.summary ?? "") && continuations < 3) {
+      continuations++;
+      ctx.log(`  ⏩ 남은 단계가 있어 이어서 개발 (${continuations}/3)`);
       continue;
     }
 

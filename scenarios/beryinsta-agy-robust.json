@@ -1,0 +1,25 @@
+{
+  "name": "beryinsta",
+  "repository": "https://github.com/kms0539/beryinsta.git",
+  "goal": "beryinsta의 agy 호출이 실제 환경에서 가끔 빈 응답으로 끝나는 문제를 고쳐, generate가 안정적으로 동작하게 한다.",
+  "ai": {
+    "engine": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "robust",
+      "title": "agy 빈 응답 방지와 재시도",
+      "files": ["src/beryinsta/providers/agy.py", "tests/test_agy.py"],
+      "requirement": "[실제 장애 — 2026-10-02 이 PC에서 agy 1.2.14로 재현]\n설정 파일·데이터 폴더가 있는 작업 폴더에서 beryinsta generate를 실행하면, 대본 작성(--json-schema) 중 agy 에이전트가 스스로 로컬 파일을 읽으려 하고, 헤드리스 모드라 read_file 권한이 자동 거부되어 결과가 status=SUCCESS인데 response가 빈 문자열로 끝난다. 이때 마지막 result 줄에는 \"denied_actions\":[{\"action\":\"read_file\",...}]가 있고 stderr에는 'no output produced — a tool required the \"read_file\" permission ...'가 나온다. 빈 폴더에서는 대부분 정상이지만 가끔 같은 현상이 난다.\n\n고칠 것(src/beryinsta/providers/agy.py):\n1. run_agy는 agy를 항상 비어 있는 임시 폴더(tempfile.TemporaryDirectory)를 작업 폴더(cwd)로 실행한다. runner에 cwd 인자로 넘긴다.\n2. 대본 작성 프롬프트에 '도구를 쓰지 말고 파일을 읽지 말라, 주어진 내용만으로 답하라'를 넣는다. 이미지 생성 프롬프트에는 '참고 이미지 외의 파일을 읽지 말라'를 넣는다.\n3. status가 SUCCESS인데 response가 비어 있으면 실패로 본다. 한 번만 다시 실행하고, 또 비면 AgyError를 던진다. 오류 메시지에는 denied_actions의 action 이름과 stderr 끝부분을 넣는다.\n완료 기준: tests/test_agy.py에 runner에 빈 임시 폴더 cwd가 전달됨, 빈 응답 뒤 재시도로 성공, 두 번 다 빈 응답이면 AgyError와 denied_actions 이름 포함, 대본 프롬프트에 도구·파일 읽기 금지 문구 포함 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "재시도는 빈 응답일 때만 한다(사용량 한도·실행 실패는 재시도하지 않는다). 대본 응답의 scenes 외 키(toolAction 등)는 무시한다."
+    }
+  ]
+}

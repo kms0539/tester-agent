@@ -93,3 +93,14 @@ test("AI 사용량 한도로 끝나면 Forge를 고치지 않고 사람에게 �
 
   await assert.rejects(develop(ctxWith(api), "a", scenario.tasks[0], scenario), (error) => error instanceof StepFailure && error.kind === "human");
 });
+
+test("QA는 통과했지만 남은 단계가 있으면 이어서 개발을 다시 누른다", async () => {
+  const { api, calls } = fakeForge([
+    { status: "failed", latestQaOutcome: "pass", summary: "AI QA 통과 · 남은 구현 단계 확인 필요" },
+    { status: "succeeded", latestQaOutcome: "pass", summary: "AI QA 통과" },
+  ]);
+
+  await develop(ctxWith(api), "a", scenario.tasks[0], scenario);
+
+  assert.equal(calls.filter((call) => call.path === "/forge/pipeline/start").length, 2);
+});
