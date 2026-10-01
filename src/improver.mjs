@@ -45,13 +45,28 @@ export function createImprover({ forgeDir, engine = "claude", runDir, server, sn
 
     const summary = answer.output.match(/FIXED:\s*(.+)/)?.[1]?.trim() ?? `${failure.title} 문제 수정`;
     await git("add", "-A");
-    await git("commit", "-m", `fix: ${summary}\n\ntester-agent가 '${failure.title}' 단계에서 발견한 문제(실패 #${number}, ${failure.kind}).\n보고서: ${reportFile}\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`);
+    await git("commit", "-m", commitMessage(summary, failure, number, reportFile));
     const commit = (await git("rev-parse", "--short", "HEAD")).stdout.trim();
 
     log("  Forge를 다시 시작합니다…");
     await server.restart();
     return { fixed: true, summary, commit, report: reportFile };
   };
+}
+
+// 제목은 한 줄로 짧게, 자세한 내용은 본문에 둔다.
+function commitMessage(summary, failure, number, reportFile) {
+  const title = summary.length > 60 ? `${summary.slice(0, 57)}…` : summary;
+  return [
+    `fix: ${title}`,
+    "",
+    summary,
+    "",
+    `tester-agent가 '${failure.title}' 단계에서 발견한 문제 (실패 #${number}, ${failure.kind})`,
+    `보고서: ${reportFile}`,
+    "",
+    "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+  ].join("\n");
 }
 
 // ─── AI 실행 ────────────────────────────────────────────────
@@ -96,7 +111,7 @@ function prompt(reportFile) {
 - 커밋·push는 하지 않는다. 검사를 통과하면 tester-agent가 커밋한다.
 
 마지막 줄
-- 고쳤으면: FIXED: <바꾼 내용 한 줄>
+- 고쳤으면: FIXED: <바꾼 내용, 50자 이내 한 줄>
 - Forge 문제가 아니면(AI 결과가 우연히 나쁨, 시나리오가 모호함 등) 코드를 바꾸지 말고: NO_FORGE_CHANGE: <이유>`;
 }
 

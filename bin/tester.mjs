@@ -18,6 +18,7 @@ import { openJournal } from "../src/journal.mjs";
 import { runSteps } from "../src/runner.mjs";
 import { summarizeProject } from "../src/snapshot.mjs";
 import { buildSteps } from "../src/steps.mjs";
+import { writeSummary } from "../src/summary.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RUNS = join(ROOT, "runs");
@@ -46,7 +47,7 @@ else {
 
 async function start(scenarioFile) {
   const scenario = JSON.parse(await readFile(scenarioFile, "utf8"));
-  const runId = `${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}-${scenario.name}`;
+  const runId = `${localStamp()}-${scenario.name}`;
   const runDir = join(RUNS, runId);
   const journal = await openJournal(runDir, {
     runId,
@@ -72,6 +73,12 @@ async function list() {
   }
 }
 
+// 실행 ID에 쓰는 이 PC 기준 시각 (예: 20261001-1417)
+function localStamp(date = new Date()) {
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
 // ─── 실행 ───────────────────────────────────────────────────
 
 async function execute(journal, scenario) {
@@ -93,6 +100,7 @@ async function execute(journal, scenario) {
     data: journal.data,
     log,
     ai: scenario.ai ?? { engine: "codex", model: "" },
+    runDir,
     repositoryPath: journal.state.repositoryPath,
     // 실행 검증은 이 PC와 같은 Node 버전 이미지로 돌린다.
     verifyImage: scenario.verify?.image ?? `node:${process.versions.node}-slim`,
@@ -125,5 +133,6 @@ async function execute(journal, scenario) {
     process.exitCode = result.status === "passed" ? 0 : 2;
   } finally {
     await server.stop();
+    log(`요약: ${await writeSummary(journal, scenario)}`);
   }
 }

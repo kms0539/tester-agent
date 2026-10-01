@@ -1,13 +1,19 @@
 {
   "name": "slug-kit",
   "goal": "URL용 슬러그와 문자열 자르기 함수를 제공하는 작은 TypeScript 라이브러리. 외부 런타임 의존성 없이 Node 22에서 테스트가 통과해야 한다.",
-  "ai": { "engine": "codex", "model": "gpt-5.6-luna" },
+  "ai": {
+    "engine": "codex",
+    "model": "gpt-5.6-luna"
+  },
   "stack": {
     "language": "typescript",
     "decision": "TypeScript 5.6.3, Node 22. 테스트는 node:test로 .ts 파일을 Node 내장 타입 제거(node --experimental-strip-types --test)로 실행한다. 외부 런타임 의존성은 두지 않는다. 소스는 src/, 테스트는 test/에 둔다. package.json의 test 스크립트가 test/ 아래 모든 *.test.ts를 실행한다."
   },
-  "verify": { "command": "npm install && npm test" },
+  "verify": {
+    "command": "npm install && npm test"
+  },
   "hostCheck": "npm install && npm test",
+  "publish": true,
   "maxManualRework": 1,
   "tasks": [
     {

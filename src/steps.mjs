@@ -1,12 +1,14 @@
 // 시나리오(JSON)를 Forge 사용 순서대로 단계 목록으로 만든다.
 // 각 단계는 사용자가 화면에서 누르는 버튼과 같은 API를 같은 순서로 부른다.
 
-import { exec } from "node:child_process";
+import { exec, execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import { GoBack, StepFailure } from "./runner.mjs";
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const PLAN_TIMEOUT = 6 * 60_000;
 const PIPELINE_TIMEOUT = 40 * 60_000;
@@ -15,6 +17,7 @@ const POLL_MS = 3000;
 export function buildSteps(scenario) {
   const steps = [
     createProject(),
+    ...(scenario.publish ? [connectRemote()] : []),
     ...setupSteps(),
   ];
 
@@ -155,6 +158,7 @@ function taskSteps(spec, scenario) {
         return last?.status === "applied" && last.scope?.checkpointId === task.currentCheckpointId;
       },
     },
+    ...(scenario.publish ? [publishStep(spec, taskId, current)] : []),
     {
       id: `task:${key}:report`,
       title: `${spec.title} · 결과 보고서 저장`,
@@ -269,6 +273,51 @@ async function runPipeline(ctx, taskId, maxAutoRework) {
     if (job.status !== "running") return job;
   }
   throw new StepFailure("forge", `원사이클이 ${PIPELINE_TIMEOUT / 60_000}분 안에 끝나지 않았습니다.`);
+}
+
+// ─── 커밋·push ───────────────────────────────────────────────
+
+// 실제 GitHub 대신 실행 폴더 안의 bare 저장소를 origin으로 둔다. Forge의 '커밋하고 push'를 끝까지 시험한다.
+function connectRemote() {
+  return {
+    id: "project:remote",
+    title: "원격 저장소(origin) 연결",
+    async run(ctx) {
+      const remote = join(ctx.runDir, "remote.git");
+      await execFileAsync("git", ["init", "--bare", "--initial-branch=main", remote]);
+      await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", "add", "origin", remote]);
+    },
+    async check(ctx) {
+      const { stdout } = await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", "get-url", "origin"]);
+      return stdout.trim() === join(ctx.runDir, "remote.git");
+    },
+  };
+}
+
+function publishStep(spec, taskId, current) {
+  return {
+    id: `task:${spec.key}:publish`,
+    title: `${spec.title} · 커밋하고 push`,
+    async run(ctx) {
+      const { commit } = await read(ctx);
+      await ctx.api.post("/forge/code/publish", {
+        projectId: ctx.data.projectId,
+        taskId: taskId(ctx),
+        expectedCommit: commit,
+        message: `feat: ${spec.title}`,
+        branch: "",
+      });
+    },
+    // Forge 기록뿐 아니라 원격 저장소에 그 커밋이 실제로 올라갔는지 본다.
+    async check(ctx) {
+      const task = await current(ctx);
+      const applied = task?.applications?.findLast((item) => item.status === "applied");
+      const published = task?.publications?.findLast((item) => item.applicationId === applied?.id);
+      if (!published) return false;
+      const { stdout } = await execFileAsync("git", ["--git-dir", join(ctx.runDir, "remote.git"), "rev-parse", published.branch]);
+      return stdout.trim() === published.commit;
+    },
+  };
 }
 
 // ─── 플랜 ───────────────────────────────────────────────────

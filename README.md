@@ -11,7 +11,7 @@
 ```
 새 프로젝트(빈 저장소)
 → 기술 스택 결정: AI 플랜 → 승인 → 공통 정책 반영
-→ 작업마다: 작업 저장 → AI 플랜 → 승인 → 원사이클(개발→검증→QA) → 원본 반영 → 보고서 → 완료
+→ 작업마다: 작업 저장 → AI 플랜 → 승인 → 원사이클(개발→검증→QA) → 원본 반영 → 커밋·push → 보고서 → 완료
 → 반영된 저장소를 이 PC에서 직접 확인 (예: npm install && npm test)
 ```
 
@@ -61,6 +61,7 @@ node bin/tester.mjs list                                 # 실행 기록
 
 테스트용 Forge는 평소 쓰는 Forge와 **다른 포트·다른 데이터 폴더**(`runs/<실행>/forge-data`)로 띄우므로 서로 섞이지 않습니다.
 `Ctrl+C`로 끊어도 Forge를 정리하고 끝나며, `resume`으로 이어 갈 수 있습니다.
+실행이 끝나면 `runs/<실행>/summary.md`에 결과·실패·자동 수정 내역이 남습니다.
 
 ## 시나리오
 
@@ -73,6 +74,7 @@ node bin/tester.mjs list                                 # 실행 기록
 | `stack.language`, `stack.decision` | 기술 스택 결정 작업에서 공통 정책으로 반영할 내용 |
 | `verify.command` | Forge 안 실행 검증 명령 (Docker, 이 PC와 같은 Node 버전) |
 | `hostCheck` | 마지막에 이 PC에서 돌려 볼 명령 |
+| `publish` | `true`면 실행 폴더의 로컬 원격(`remote.git`)을 origin으로 두고 '커밋하고 push'까지 시험 |
 | `tasks[]` | `key`, `title`, `requirement`, `clarification`(AI 질문에 대한 답) |
 | `maxManualRework` | QA 보완 필요 시 재개발을 더 누를 횟수 (기본 1) |
 
@@ -87,6 +89,7 @@ src/improver.mjs      보고서 작성, AI에게 Forge 수정 맡기기, 검사�
 src/forge-server.mjs  테스트용 Forge 서버 시작·종료
 src/forge-api.mjs     Forge API 호출
 src/snapshot.mjs      보고서용 Forge 상태 요약
+src/summary.mjs       실행 요약(summary.md)
 ```
 
 ```bash
