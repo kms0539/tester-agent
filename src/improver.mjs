@@ -12,6 +12,7 @@ const FIX_TIMEOUT = 30 * 60_000;
 const CLAUDE_TOOLS = [
   "Read", "Edit", "Write", "Grep", "Glob",
   "Bash(npm test)", "Bash(npm test:*)", "Bash(node --test:*)", "Bash(node --experimental-wasm-imported-strings --test:*)",
+  "Bash(node -e:*)", "Bash(node --input-type=module:*)",
   "Bash(npx tsc:*)", "Bash(npx eslint:*)", "Bash(git diff:*)", "Bash(git status)",
 ].join(",");
 
@@ -28,7 +29,7 @@ export function createImprover({ forgeDir, engine = "claude", runDir, server, sn
     log(`  보고서: ${reportFile}`);
 
     log(`  ${engine}에게 Forge 수정을 맡깁니다(최대 ${FIX_TIMEOUT / 60_000}분)…`);
-    const answer = await askAgent(engine, prompt(reportFile), forgeDir);
+    const answer = await askAgent(engine, prompt(reportFile, join(runDir, "forge-data")), forgeDir);
     await writeFile(reportFile.replace(/\.md$/, `.${engine}.log`), answer.output);
 
     const changed = (await git("status", "--porcelain")).stdout.trim();
@@ -95,13 +96,15 @@ function askAgent(engine, text, cwd) {
   });
 }
 
-function prompt(reportFile) {
+function prompt(reportFile, dataDir) {
   return `너는 Forge(요구사항→플랜→AI 개발→QA→반영을 관리하는 로컬 도구) 저장소를 고치는 개발자다.
 자동 테스트 에이전트(tester-agent)가 Forge를 실제 사용자처럼 쓰다가 한 단계에서 막혔다.
 보고서를 먼저 읽어라: ${reportFile}
 
 할 일
-1. 원인을 찾는다. 사용자가 같은 상황을 겪으면 어떤 점이 문제인지부터 생각한다.
+1. 원인을 찾는다. 추측하지 말고 실제로 실패한 데이터를 확인한다.
+   테스트용 Forge 데이터: ${dataDir} (AI 실행의 원본 입력·결과는 .runs/<runId>/input.json, result.txt)
+   고친 코드에 그 실제 데이터를 넣어 이번에는 통과하는지 직접 확인한다. 확인하지 못했으면 고치지 않는다.
 2. Forge 쪽 문제(동작 오류, 잘못된 안내·검증, AI 지시 규칙의 모순, 상태 처리 누락)면 필요한 만큼만 고치고, 그 상황을 잡는 테스트를 추가한다.
 3. 마치기 전에 npm test, npx tsc --noEmit -p ., npx eslint . 를 실행해 모두 통과시킨다.
 
