@@ -1,0 +1,51 @@
+{
+  "name": "beryinsta",
+  "goal": "로컬 PC에서 매일 주제를 정해 점심(12:00)에는 이미지, 저녁(19:00)에는 세로 영상을 준비하는 자동 게시 CLI. 주제는 요즘 청년들의 현실, 애니, 청년 희망편 같은 일상 주제이고 게시물마다 결과물이 달라야 한다. 저녁 영상은 Instagram Reels에 올리고, 나중에 YouTube Shorts에도 같은 영상을 다시 쓸 수 있어야 한다. 주제·게시물 상태는 Git에 넣지 않는 로컬 데이터 폴더에 저장하고, 그 폴더만 옮기면 다른 PC에서 이어서 쓸 수 있어야 한다. 이번 범위는 외부 호출 없는 dry-run까지이며, 이미지·영상 생성(agy CLI)과 Instagram·YouTube·Discord 연동은 계약이 확정된 뒤 어댑터로 붙인다.",
+  "ai": {
+    "engine": "codex",
+    "model": "gpt-5.6-luna"
+  },
+  "stack": {
+    "language": "python",
+    "decision": "Python 3.12 이상(requires-python = \">=3.12\"), 웹 프레임워크 없는 CLI. 런타임 의존성은 없고 표준 라이브러리만 쓴다. 패키징은 pyproject.toml + setuptools(build-backend = \"setuptools.build_meta\"), 패키지는 src/beryinsta/, 테스트는 tests/에 둔다. 개발 의존성은 [project.optional-dependencies] dev = [\"pytest==8.4.2\"] 하나다. 시간대는 Asia/Seoul(zoneinfo). 운영 데이터는 .beryinsta-data/, 로컬 설정은 config/settings.json이며 둘 다 .gitignore에 넣고, 예시 설정 config/settings.example.json만 Git에 둔다. 외부 서비스(agy CLI, Instagram, YouTube, Discord)는 이번 범위에서 호출하지 않고 가짜 어댑터로 대신한다."
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q && .venv/bin/beryinsta --help",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "settings",
+      "title": "설정과 로컬 저장소",
+      "requirement": "src/beryinsta/config.py에 load_settings(path) -> Settings와 ConfigError(ValueError)를 만든다. 설정은 UTF-8 JSON이며 config/settings.example.json에 기본값을 둔다.\n설정 항목: timezone(기본 Asia/Seoul), data_root(기본 .beryinsta-data), missed_slot_policy(skip만 허용), slots.lunch {time: \"12:00\", media: \"image\"}, slots.evening {time: \"19:00\", media: \"video\"}, video {aspect_ratio: \"9:16\", width: 1080, height: 1920, duration_seconds: 30, captions: true, voice: false, music: false}, video.targets: [\"instagram_reels\"].\nvideo.targets에 쓸 수 있는 값은 instagram_reels, youtube_shorts이며, 나중에 youtube_shorts를 설정에 추가하는 것만으로 Shorts 대상이 늘어나야 한다. duration_seconds는 1~60, 시각은 HH:MM, 알 수 없는 target·잘못된 값은 ConfigError로 어떤 항목이 틀렸는지 알린다.\nsrc/beryinsta/storage.py에 JsonStorage(data_root)를 만든다. state.json 하나에 topics(사용한 주제 기록)와 posts(게시물)를 저장하고, 임시 파일에 쓴 뒤 교체(원자적 쓰기)하며 교체 전 이전 파일을 state.json.bak로 남긴다. 같은 (date, slot) 게시물을 두 번 넣으면 DuplicatePostError를 던진다.\n.gitignore에 .beryinsta-data/, config/settings.json, .venv/, __pycache__/를 넣는다.\n완료 기준: tests/test_config.py(기본값, 잘못된 시각·target·duration 오류), tests/test_storage.py(초기화, 저장 후 다시 읽기, .bak 생성, 중복 게시물 오류)가 있고 python -m pytest가 통과한다.",
+      "clarification": "파일 잠금은 이번 범위에서 빼고 한 프로세스만 쓴다고 가정한다. 설정 파일이 없으면 ConfigError로 'beryinsta init'을 안내한다. 예시 설정에 없는 키는 무시하지 않고 ConfigError로 알린다."
+    },
+    {
+      "key": "topics",
+      "title": "주제 선정과 하루 게시 계획",
+      "dependsOn": ["settings"],
+      "files": ["src/beryinsta/config.py", "src/beryinsta/storage.py"],
+      "requirement": "src/beryinsta/topics.py에 주제 풀과 선정 규칙을 만든다. 주제 분류는 youth_reality(요즘 청년들의 현실), anime(애니 감성 일상), youth_hope(청년 희망편) 세 가지이고 분류마다 주제 문장을 10개 이상 둔다.\nselect_topic(target_date, slot, used_topics) -> Topic(category, text): 최근 14일 안에 쓴 주제는 다시 고르지 않고, 같은 날 점심과 저녁은 서로 다른 분류에서 고른다. 고르는 순서는 날짜·슬롯으로 정해지는(같은 입력이면 같은 결과) 방식이며 random 전역 상태를 쓰지 않는다.\nsrc/beryinsta/planner.py에 plan_day(target_date, settings, state) -> list[Post]를 만든다. Post는 date, slot(lunch|evening), scheduled_at(설정 시간대 기준 ISO 8601), media(image|video), topic, content_key(날짜·슬롯·주제로 만든 고유 키)를 가진다. 이미 계획된 (date, slot)은 다시 만들지 않는다.\n완료 기준: tests/test_topics.py(14일 안 중복 없음, 점심·저녁 분류 다름, 같은 입력 같은 결과, 분류별 10개 이상), tests/test_planner.py(하루 2건, 시각·media, 이미 있는 슬롯 건너뜀)가 있고 python -m pytest가 통과한다.",
+      "clarification": "주제 풀이 다 쓰여 고를 주제가 없으면 TopicExhaustedError를 던진다. scheduled_at은 +09:00 오프셋을 포함한 문자열이다."
+    },
+    {
+      "key": "video",
+      "title": "영상 패키지와 플랫폼별 게시 정보(Reels·Shorts)",
+      "dependsOn": ["settings", "topics"],
+      "files": ["src/beryinsta/config.py", "src/beryinsta/planner.py"],
+      "requirement": "저녁 영상을 한 번 만들어 여러 플랫폼에 다시 쓸 수 있게, 영상 원본 정보와 플랫폼별 게시 정보를 나눈다.\nsrc/beryinsta/media.py에 build_video_package(post, settings) -> VideoPackage를 만든다. VideoPackage는 master(aspect_ratio, width, height, duration_seconds, captions, voice, music, file_name)와 targets(dict[target, TargetMeta])를 가진다. file_name은 content_key로 만들고 확장자는 .mp4다.\nTargetMeta는 플랫폼마다 따로 만든다. instagram_reels: caption(2,200자 이하), hashtags(30개 이하, # 포함). youtube_shorts: title(100자 이하), description(5,000자 이하), tags, 그리고 title 또는 description에 #Shorts가 들어간다. 길이를 넘으면 잘라서 맞춘다.\n설정 video.targets에 있는 플랫폼만 만들고, 플랫폼 추가는 TARGET_BUILDERS 같은 등록 표에 함수 하나를 더하는 것으로 끝나야 한다.\n이미지 게시물(점심)은 build_image_package(post, settings)로 instagram 게시 정보만 만든다.\n완료 기준: tests/test_media.py(9:16·1080x1920 원본, targets 설정에 따라 Reels만/Reels+Shorts, 길이 제한 자르기, #Shorts 포함, 해시태그 30개 제한)가 있고 python -m pytest가 통과한다.",
+      "clarification": "캡션·제목 문구는 주제 문장과 분류로 만드는 고정 템플릿이면 된다(외부 AI 호출 없음). 잘라낼 때는 끝에 '…'를 붙여 제한 길이를 넘지 않게 한다."
+    },
+    {
+      "key": "dryrun",
+      "title": "dry-run CLI",
+      "dependsOn": ["settings", "topics", "video"],
+      "files": ["pyproject.toml", "src/beryinsta/config.py", "src/beryinsta/storage.py", "src/beryinsta/planner.py", "src/beryinsta/media.py"],
+      "requirement": "src/beryinsta/providers/fake.py에 외부 호출 없는 FakeMediaGenerator(generate(package) -> 가짜 파일 경로)와 FakePublisher(target별 preview(package) -> dict)를 만든다. 실제 연동은 같은 메서드를 가진 어댑터를 나중에 붙인다.\nsrc/beryinsta/cli.py에 main(argv=None) -> int와 명령을 만든다.\n- beryinsta init: config/settings.json이 없으면 예시 설정을 복사하고 데이터 폴더를 초기화한다. 이미 있으면 덮어쓰지 않는다.\n- beryinsta plan --date YYYY-MM-DD: 그날 계획을 저장하고 JSON으로 출력한다.\n- beryinsta dry-run --date YYYY-MM-DD --slot lunch|evening [--now ISO8601]: 계획된 게시물로 패키지를 만들고 가짜 생성·게시 미리보기를 JSON으로 출력한다. 저녁은 설정 video.targets의 플랫폼마다 미리보기를 낸다. --now가 게시 시각을 이미 지났으면 missed_slot_policy(skip)에 따라 건너뛰었다고 출력하고 상태에 skipped로 남긴다.\n- beryinsta state: 저장된 상태를 JSON으로 출력한다.\n설정·저장소 오류는 stderr에 한 줄로 알리고 종료 코드 1을 돌려준다. pyproject.toml에 [project.scripts] beryinsta = \"beryinsta.cli:main\"를 추가한다. README.md에 설치·명령 사용법과 Shorts 대상을 켜는 방법(video.targets에 youtube_shorts 추가)을 적는다.\n완료 기준: tests/test_cli.py(init 두 번 실행해도 설정 유지, plan 출력, 저녁 dry-run에서 targets에 따라 Reels만/Reels+Shorts 미리보기, 지난 시각 skip, 잘못된 설정일 때 종료 코드 1)가 있고 python -m pytest가 통과한다.",
+      "clarification": "--config 옵션으로 설정 파일 경로를 바꿀 수 있고 기본값은 config/settings.json이다. data_root가 상대 경로면 설정 파일이 아니라 현재 작업 폴더 기준이다. dry-run은 계획이 없으면 그날 계획을 먼저 만든다."
+    }
+  ]
+}
