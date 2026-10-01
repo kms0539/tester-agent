@@ -1,0 +1,41 @@
+{
+  "name": "beryinsta",
+  "repository": "https://github.com/kms0539/beryinsta.git",
+  "goal": "beryinsta에 실제 생성 기능을 붙인다. 주제로 agy CLI가 장면 대본과 웹툰풍 이미지를 만들고, 저녁 영상은 그 이미지들을 ffmpeg로 9:16 세로 영상으로 조립한다. 만든 파일은 데이터 폴더에 남기고 Instagram Reels와 YouTube Shorts 게시 정보와 함께 상태에 기록한다. 실제 게시(Instagram·YouTube API)는 이번 범위가 아니다.",
+  "ai": {
+    "engine": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q && .venv/bin/beryinsta --help",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "agy",
+      "title": "agy 어댑터(장면 대본·이미지 생성)",
+      "files": ["pyproject.toml", "README.md", "src/beryinsta/config.py", "src/beryinsta/providers/fake.py"],
+      "requirement": "src/beryinsta/providers/agy.py에 agy CLI 어댑터를 만든다. 테스트는 subprocess 실행 함수(runner)를 주입해 실제 agy를 부르지 않는다.\n\n[호출 계약 — 2026-10-01 이 PC에서 agy 1.2.14로 직접 확인한 확정 내용]\n- 명령: agy -p <프롬프트> --output-format stream-json --print-timeout <초>s [--model <모델>] [--json-schema <JSON 문자열>] [--dangerously-skip-permissions]\n- 표준 출력은 한 줄에 JSON 하나(NDJSON)다. 마지막의 {\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"...\"}} 줄이 최종 결과이며, status가 SUCCESS가 아니거나 result 줄이 없으면 실패다.\n- --json-schema를 주면 response가 그 스키마를 따르는 JSON 문자열이다.\n- 이미지 생성은 agy 에이전트의 generate_image 도구가 한다. 매개변수는 Prompt(설명), ImageName(파일 이름), AspectRatio(예: 9:16, 4:5), ImagePaths(참고 이미지 경로 목록, 선택)다. 도구를 쓰려면 --dangerously-skip-permissions가 필요하다. 생성 파일은 ~/.gemini/antigravity-cli/brain/<대화ID>/<ImageName>_<숫자>.jpg에 저장되므로, 프롬프트에서 '저장된 파일의 절대 경로만 답하라'고 시키고 response에서 경로를 읽는다. 9:16은 768x1376 JPEG로 나온다(약 30초).\n- 영상 생성 도구는 없다.\n\n만들 것:\n- run_agy(prompt, *, schema=None, model=None, timeout_seconds=300, tools=False, runner=subprocess.run) -> str: 위 명령을 실행하고 response를 돌려준다. 실패하면 AgyError를 던지며, 출력에 quota·exhausted·limit가 있으면 메시지에 '사용량 한도'를 넣는다.\n- AgyScriptWriter.write(topic, category, scene_count) -> list[Scene]: --json-schema로 {\"scenes\":[{\"description\",\"dialogue\"}]}를 받는다. description은 그림 설명(영어), dialogue는 말풍선 한국어 대사(20자 이하)다. 개수가 다르거나 대사가 비었거나 20자를 넘으면 AgyError다.\n- AgyImageGenerator.generate(prompt, *, name, aspect_ratio, dest_dir, reference_paths=()) -> Path: generate_image를 정확히 한 번 쓰게 하고, 돌려받은 절대 경로의 파일(.jpg·.jpeg·.png)이 있으면 dest_dir/<name>.<확장자>로 복사해 그 경로를 돌려준다.\n- build_image_prompt(scene, category) -> str: 독창적인 캐릭터와 상황, 따뜻한 세로 웹툰 그림체, 말풍선에는 주어진 한국어 대사만 넣기, 실존 브랜드·로고·상표·간판 글자·실존 인물 금지를 담는다.\n- 설정에 generator: \"fake\" | \"agy\"(기본 fake)와 agy: {model: null, timeout_seconds: 300}을 추가하고 config/settings.example.json도 고친다.\n완료 기준: tests/test_agy.py에 정상 result 줄 파싱, SUCCESS가 아닐 때·result 줄 없을 때 AgyError, 한도 메시지, 대본 개수·대사 길이 검증, 이미지 경로 복사·없는 파일 오류, 프롬프트에 금지 규칙 포함 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "모델 기본값은 지정하지 않는다(agy 기본 모델). 같은 캐릭터를 유지하려고 두 번째 장면부터 첫 장면 이미지를 reference_paths로 넘기는 것은 다음 작업에서 한다."
+    },
+    {
+      "key": "video",
+      "title": "영상 조립(ffmpeg)과 자막 파일",
+      "dependsOn": ["agy"],
+      "files": ["src/beryinsta/config.py", "src/beryinsta/media.py"],
+      "requirement": "src/beryinsta/video.py에 장면 이미지 여러 장으로 세로 영상을 만드는 기능을 만든다. 테스트는 runner를 주입해 실제 ffmpeg를 부르지 않는다.\n\n[ffmpeg 계약 — 이 PC의 ffmpeg 8.1로 직접 확인]\n- drawtext·subtitles 필터는 없다(자막은 이미지 말풍선과 별도 .srt로 처리). scale·crop·zoompan·xfade·anullsrc는 있다.\n- 확인한 명령 형태: 이미지마다 -loop 1 -t <장면 길이> -i <이미지>, 마지막에 -f lavfi -t <전체 길이> -i anullsrc=r=44100:cl=stereo. filter_complex에서 각 이미지를 scale=W:H:force_original_aspect_ratio=increase,crop=W:H,zoompan=z='min(zoom+0.0008,1.15)':d=<프레임 수>:s=WxH:fps=30 으로 만들고, 이어지는 장면은 xfade=transition=fade:duration=1:offset=<누적 시각>으로 붙인 뒤 format=yuv420p. 출력은 -c:v libx264 -preset veryfast -crf 20 -c:a aac -shortest -movflags +faststart. 1080x1920·30fps·H.264+AAC mp4가 나온다.\n\n만들 것:\n- build_ffmpeg_command(images, output, video_settings, ffmpeg=\"ffmpeg\") -> list[str]: 장면 길이는 (duration_seconds + 겹침(장면 수-1)초) / 장면 수로 나눠 전체 길이가 duration_seconds가 되게 한다. 장면이 1개면 xfade 없이 만든다. 장면 수는 1~8.\n- write_srt(dialogues, scene_seconds, path): 장면마다 대사 한 블록, 시각 형식 HH:MM:SS,mmm.\n- compose_video(images, dialogues, out_dir, video_settings, runner=subprocess.run) -> VideoFiles(video, subtitles): 명령을 실행하고 종료 코드가 0이 아니거나 파일이 없으면 VideoError를 던진다.\n완료 기준: tests/test_video.py에 장면 3개일 때 xfade 두 번과 offset 값, 장면 1개일 때 xfade 없음, 해상도·fps·코덱 옵션, srt 시각, 실패 시 VideoError 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "ffmpeg 실행 파일 경로는 설정 video.ffmpeg(기본 \"ffmpeg\")로 바꿀 수 있다. 겹침(xfade) 길이는 1초로 고정한다."
+    },
+    {
+      "key": "generate",
+      "title": "실제 생성 명령(beryinsta generate)",
+      "dependsOn": ["agy", "video"],
+      "files": ["README.md", "src/beryinsta/cli.py", "src/beryinsta/config.py", "src/beryinsta/storage.py", "src/beryinsta/planner.py", "src/beryinsta/media.py", "src/beryinsta/providers/fake.py", "src/beryinsta/providers/agy.py", "src/beryinsta/video.py"],
+      "requirement": "beryinsta generate --date YYYY-MM-DD --slot lunch|evening [--now ISO8601] 명령을 만든다. dry-run과 같은 계획·건너뛰기 규칙을 따르고, 설정 generator가 agy면 실제 생성, fake면 가짜 생성을 한다.\n- 점심(이미지): 대본 1장면을 받아 AspectRatio 4:5로 이미지 1장을 만들고, 게시 정보는 build_image_package로 만든다.\n- 저녁(영상): 대본 video.scenes장면(설정, 기본 4, 1~8)을 받아 장면마다 9:16 이미지를 만든다. 두 번째 장면부터 첫 장면 이미지를 reference_paths로 넘겨 같은 캐릭터를 유지한다. compose_video로 영상과 .srt를 만들고, 게시 정보는 build_video_package로 설정 video.targets의 플랫폼(instagram_reels, youtube_shorts)마다 만든다.\n- 파일은 <data_root>/media/<content_key>/에 저장한다(scene-1.jpg…, video.mp4, captions.srt, script.json).\n- 상태의 해당 게시물에 status=generated, files(상대 경로), targets(플랫폼별 게시 정보), generated_at을 남긴다. 이미 generated면 다시 만들지 않고 --force일 때만 다시 만든다.\n- 생성 중 오류(AgyError·VideoError)는 stderr에 한 줄로 알리고 종료 코드 1, 상태에는 status=failed와 오류 메시지를 남긴다.\n- README.md에 generate 사용법, generator를 agy로 바꾸는 방법, 필요한 도구(agy CLI 로그인, ffmpeg), Shorts 대상 켜는 방법을 적는다.\n완료 기준: tests/test_generate.py에서 가짜 대본·이미지·영상 공급자를 주입해 점심 이미지 생성, 저녁 영상 생성(장면 수·참고 이미지 전달·파일 경로), targets에 따라 Reels만/Reels+Shorts, 이미 생성된 게시물 건너뛰기와 --force, 실패 시 status=failed와 종료 코드 1, 지난 시각 skip을 확인하고 python -m pytest가 통과한다.",
+      "clarification": "공급자 주입은 cli.main이 아니라 생성 로직 함수(generate_post 등)에 인자로 넘기는 방식이면 된다. generate는 계획이 없으면 그날 계획을 먼저 만든다."
+    }
+  ]
+}

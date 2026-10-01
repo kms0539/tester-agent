@@ -18,7 +18,8 @@ export function buildSteps(scenario) {
   const steps = [
     createProject(),
     ...(scenario.publish ? [connectRemote()] : []),
-    ...setupSteps(),
+    // 기존 저장소에서 시작하면 Forge가 스택 결정 작업을 만들지 않는다.
+    ...(scenario.repository ? [] : setupSteps()),
   ];
 
   for (const task of scenario.tasks) {
@@ -44,13 +45,14 @@ async function copyGitIdentity(repositoryPath) {
 function createProject() {
   return {
     id: "project:create",
-    title: "새 프로젝트 만들기(빈 저장소)",
+    title: "새 프로젝트 만들기",
 
     async run(ctx) {
+      // repository가 있으면 그 Git URL을 실행 폴더(repos/)로 clone해 이어서 개발한다. 없으면 빈 저장소.
       const created = await ctx.api.post("/forge/projects/create", {
         name: ctx.scenario.name,
         goal: ctx.scenario.goal,
-        blankRepositoryPath: ctx.repositoryPath,
+        blankRepositoryPath: ctx.scenario.repository ?? ctx.repositoryPath,
       });
       ctx.data.projectId = created.project.id;
       await copyGitIdentity(ctx.repositoryPath);
@@ -123,7 +125,8 @@ function taskSteps(spec, scenario) {
           projectId: ctx.data.projectId,
           expectedCommit: commit,
           title: spec.title,
-          requirement: spec.requirement,
+          // 보충 설명은 AI가 물어볼 때만 쓰면 묻지 않은 세부가 빠진다. 처음부터 요구사항에 넣는다.
+          requirement: spec.clarification ? `${spec.requirement}\n\n보충:\n${spec.clarification}` : spec.requirement,
         });
         ctx.data.tasks ??= {};
         ctx.data.tasks[key] = { id: snapshot.project.tasks.at(-1).id };
@@ -324,7 +327,9 @@ function connectRemote() {
     async run(ctx) {
       const remote = join(ctx.runDir, "remote.git");
       await execFileAsync("git", ["init", "--bare", "--initial-branch=main", remote]);
-      await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", "add", "origin", remote]);
+      // clone한 저장소는 origin이 실제 원격(GitHub 등)이다. 시험 중 push가 나가지 않게 실행 폴더의 원격으로 바꾼다.
+      const hasOrigin = await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", "get-url", "origin"]).then(() => true, () => false);
+      await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", hasOrigin ? "set-url" : "add", "origin", remote]);
     },
     async check(ctx) {
       const { stdout } = await execFileAsync("git", ["-C", ctx.repositoryPath, "remote", "get-url", "origin"]);
