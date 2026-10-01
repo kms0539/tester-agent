@@ -31,6 +31,16 @@ export function buildSteps(scenario) {
 
 // ─── 프로젝트 ───────────────────────────────────────────────
 
+// 만든 저장소의 커밋 작성자를 tester-agent 저장소의 로컬 git 사용자로 맞춘다.
+// 없으면 전역 설정(회사 계정 등)으로 커밋돼 개인 원격에 그대로 올릴 수 없다.
+async function copyGitIdentity(repositoryPath) {
+  for (const key of ["user.name", "user.email"]) {
+    const value = await execFileAsync("git", ["config", "--local", key], { cwd: import.meta.dirname })
+      .then(({ stdout }) => stdout.trim(), () => "");
+    if (value) await execFileAsync("git", ["-C", repositoryPath, "config", key, value]);
+  }
+}
+
 function createProject() {
   return {
     id: "project:create",
@@ -43,6 +53,7 @@ function createProject() {
         blankRepositoryPath: ctx.repositoryPath,
       });
       ctx.data.projectId = created.project.id;
+      await copyGitIdentity(ctx.repositoryPath);
     },
 
     async check(ctx) {
