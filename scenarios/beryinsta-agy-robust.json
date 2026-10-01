@@ -1,7 +1,7 @@
 {
   "name": "beryinsta",
   "repository": "https://github.com/kms0539/beryinsta.git",
-  "goal": "beryinsta의 agy 호출이 실제 환경에서 가끔 빈 응답으로 끝나는 문제를 고쳐, generate가 안정적으로 동작하게 한다.",
+  "goal": "beryinsta의 agy 대본 응답을 실제 환경에서 안정적으로 읽게 한다.",
   "ai": {
     "engine": "claude",
     "model": "claude-sonnet-5-5"
@@ -15,11 +15,14 @@
   "maxManualRework": 1,
   "tasks": [
     {
-      "key": "robust",
-      "title": "agy 빈 응답 방지와 재시도",
-      "files": ["src/beryinsta/providers/agy.py", "tests/test_agy.py"],
-      "requirement": "[실제 장애 — 2026-10-02 이 PC에서 agy 1.2.14로 재현]\n설정 파일·데이터 폴더가 있는 작업 폴더에서 beryinsta generate를 실행하면, 대본 작성(--json-schema) 중 agy 에이전트가 스스로 로컬 파일을 읽으려 하고, 헤드리스 모드라 read_file 권한이 자동 거부되어 결과가 status=SUCCESS인데 response가 빈 문자열로 끝난다. 이때 마지막 result 줄에는 \"denied_actions\":[{\"action\":\"read_file\",...}]가 있고 stderr에는 'no output produced — a tool required the \"read_file\" permission ...'가 나온다. 빈 폴더에서는 대부분 정상이지만 가끔 같은 현상이 난다.\n\n고칠 것(src/beryinsta/providers/agy.py):\n1. run_agy는 agy를 항상 비어 있는 임시 폴더(tempfile.TemporaryDirectory)를 작업 폴더(cwd)로 실행한다. runner에 cwd 인자로 넘긴다.\n2. 대본 작성 프롬프트에 '도구를 쓰지 말고 파일을 읽지 말라, 주어진 내용만으로 답하라'를 넣는다. 이미지 생성 프롬프트에는 '참고 이미지 외의 파일을 읽지 말라'를 넣는다.\n3. status가 SUCCESS인데 response가 비어 있으면 실패로 본다. 한 번만 다시 실행하고, 또 비면 AgyError를 던진다. 오류 메시지에는 denied_actions의 action 이름과 stderr 끝부분을 넣는다.\n완료 기준: tests/test_agy.py에 runner에 빈 임시 폴더 cwd가 전달됨, 빈 응답 뒤 재시도로 성공, 두 번 다 빈 응답이면 AgyError와 denied_actions 이름 포함, 대본 프롬프트에 도구·파일 읽기 금지 문구 포함 테스트가 있고 python -m pytest가 통과한다.",
-      "clarification": "재시도는 빈 응답일 때만 한다(사용량 한도·실행 실패는 재시도하지 않는다). 대본 응답의 scenes 외 키(toolAction 등)는 무시한다."
+      "key": "json",
+      "title": "agy 대본 응답에서 첫 JSON 객체만 읽기",
+      "files": [
+        "src/beryinsta/providers/agy.py",
+        "tests/test_agy.py"
+      ],
+      "requirement": "[실제 장애 — 2026-10-02 이 PC에서 agy 1.2.14로 재현]\nagy가 --json-schema 대본 요청에 SUCCESS로 답하면서 response 안에 같은 JSON을 두 번 이어 붙여 돌려줄 때가 있다. 예: 먼저 들여쓴 JSON 객체 하나가 오고 줄바꿈 뒤에 같은 내용의 한 줄 JSON 객체({\"scenes\":[...],\"toolAction\":...,\"toolSummary\":...})가 또 온다. 그래서 json.loads가 'Extra data'로 실패해 generate가 '대본 응답이 JSON이 아님'으로 멈춘다.\n\n고칠 것(src/beryinsta/providers/agy.py의 대본 응답 해석):\n- 앞뒤 공백을 지운 뒤 json.JSONDecoder().raw_decode로 첫 JSON 객체만 읽는다. 뒤에 남은 내용은 무시한다.\n- 첫 객체에 scenes가 없거나 형식이 틀리면, 이어지는 다음 JSON 객체도 차례로 시도한다. 하나도 맞지 않으면 지금처럼 AgyError다.\n- scenes 외 키(toolAction, toolSummary 등)는 무시한다.\n완료 기준: tests/test_agy.py에 같은 JSON이 두 번 이어 붙은 응답, 첫 객체가 scenes 없는 객체이고 두 번째가 맞는 응답, toolAction 같은 추가 키, 어떤 객체도 맞지 않는 응답(AgyError) 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "이미지 생성 응답(파일 경로)은 이번 범위가 아니다."
     }
   ]
 }
