@@ -1,0 +1,5 @@
+# 실행 기록·테스트용 Forge 데이터·만든 저장소는 로컬에만 둔다.
+/runs/
+/node_modules/
+.DS_Store
+.env*

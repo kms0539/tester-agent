@@ -1,0 +1,17 @@
+{
+  "name": "tester-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Forge를 실제 사용자처럼 끝까지 써 보고, 막히면 Forge를 고친 뒤 이어서 진행하는 테스트 에이전트",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "bin": {
+    "tester": "bin/tester.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "run:sample": "node bin/tester.mjs run scenarios/slug-kit.json --fix"
+  }
+}

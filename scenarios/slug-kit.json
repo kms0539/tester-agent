@@ -1,0 +1,26 @@
+{
+  "name": "slug-kit",
+  "goal": "URL용 슬러그와 문자열 자르기 함수를 제공하는 작은 TypeScript 라이브러리. 외부 런타임 의존성 없이 Node 22에서 테스트가 통과해야 한다.",
+  "ai": { "engine": "codex", "model": "gpt-5.6-luna" },
+  "stack": {
+    "language": "typescript",
+    "decision": "TypeScript 5.6.3, Node 22. 테스트는 node:test로 .ts 파일을 Node 내장 타입 제거(node --experimental-strip-types --test)로 실행한다. 외부 런타임 의존성은 두지 않는다. 소스는 src/, 테스트는 test/에 둔다. package.json의 test 스크립트가 test/ 아래 모든 *.test.ts를 실행한다."
+  },
+  "verify": { "command": "npm install && npm test" },
+  "hostCheck": "npm install && npm test",
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "slugify",
+      "title": "slugify 함수",
+      "requirement": "src/slugify.ts에 export function slugify(text: string): string 을 만든다.\n규칙: NFKD로 정규화한 뒤 결합 문자(\\p{M})를 모두 지운다. 소문자로 바꾼다. [a-z0-9]가 아닌 문자가 이어지면 하이픈 하나로 바꾼다. 앞뒤 하이픈은 지운다. 결과가 비면 빈 문자열을 돌려준다.\n완료 기준: test/slugify.test.ts에 'Hello World' → 'hello-world', 'Crème Brûlée!' → 'creme-brulee', '  --a  b--  ' → 'a-b', '한글만' → '' 테스트가 있고 npm test가 통과한다.",
+      "clarification": "한글 등 라틴 문자가 아닌 글자는 결과에서 빠진다. 숫자는 그대로 둔다."
+    },
+    {
+      "key": "truncate",
+      "title": "truncate 함수",
+      "requirement": "src/truncate.ts에 export function truncate(text: string, max: number): string 을 만든다.\n규칙: 길이는 코드 포인트(Array.from) 기준이다. 길이가 max 이하면 그대로 돌려준다. 넘으면 앞에서 (max - 1)자 + '…'를 돌려준다. max가 1보다 작거나 정수가 아니면 RangeError를 던진다.\n완료 기준: test/truncate.test.ts에 경계값(길이 = max, max + 1), 이모지 포함 문자열, max = 0일 때 RangeError 테스트가 있고 npm test가 통과한다.",
+      "clarification": "'…'는 한 글자(U+2026)로 센다. max = 1이면 '…' 한 글자만 돌려준다."
+    }
+  ]
+}
