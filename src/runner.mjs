@@ -69,6 +69,8 @@ export async function runSteps({ steps, journal, ctx, onFailure = null, maxFixes
       log(`✗ ${step.title} 실패 [${failure.kind}] ${failure.message}`);
 
       if (!onFailure) return stop(journal, `실패 #${number}: 고치기를 끈 상태라 멈춥니다.`);
+      // 사람이 정할 일(AI 질문, 사용량 한도 등)은 Forge를 고쳐도 풀리지 않는다.
+      if (failure.kind === "human") return stop(journal, `실패 #${number}: 사람이 확인해야 합니다 — ${failure.message}`);
       if (journal.fixCount(step.id) >= maxFixesPerStep) {
         return stop(journal, `실패 #${number}: 같은 단계를 ${maxFixesPerStep}번 고쳐도 통과하지 못했습니다. 사람이 확인해야 합니다.`);
       }

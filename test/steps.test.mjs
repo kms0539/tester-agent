@@ -85,3 +85,11 @@ test("보충 설명을 이미 썼는데도 질문이 오면 사람에게 넘긴�
 
   await assert.rejects(develop(ctx, "a", scenario.tasks[0], scenario), (error) => error instanceof StepFailure && error.kind === "human");
 });
+
+test("AI 사용량 한도로 끝나면 Forge를 고치지 않고 사람에게 넘긴다", async () => {
+  const { api } = fakeForge([
+    { status: "failed", latestQaOutcome: null, summary: "오류", error: "Codex 사용량 한도에 도달했습니다. 10:45 PM 이후 다시 시도하거나 다른 AI 엔진을 선택해주세요." },
+  ]);
+
+  await assert.rejects(develop(ctxWith(api), "a", scenario.tasks[0], scenario), (error) => error instanceof StepFailure && error.kind === "human");
+});

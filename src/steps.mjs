@@ -233,7 +233,9 @@ export async function develop(ctx, key, spec, scenario) {
       continue;
     }
 
-    const kind = result.status === "cancelled" ? "forge" : result.latestQaOutcome === "fail" ? "quality" : "forge";
+    const kind = aiLimitHit(result.error) ? "human"
+      : result.status === "cancelled" ? "forge"
+        : result.latestQaOutcome === "fail" ? "quality" : "forge";
     throw new StepFailure(kind, result.summary || result.error || `원사이클 ${result.status}`, {
       error: result.error,
       logs: result.logs?.slice(-20),
@@ -379,7 +381,7 @@ async function generateAndAdoptPlan(ctx, taskId) {
   const finished = await waitForRun(ctx, taskId, run.id, PLAN_TIMEOUT);
 
   if (finished.status !== "succeeded") {
-    throw new StepFailure("forge", `AI 플랜 실행이 ${finished.status}로 끝났습니다: ${finished.error ?? ""}`, {
+    throw new StepFailure(aiLimitHit(finished.error) ? "human" : "forge", `AI 플랜 실행이 ${finished.status}로 끝났습니다: ${finished.error ?? ""}`, {
       errorCode: finished.errorCode,
     });
   }
@@ -403,6 +405,9 @@ async function approvePlan(ctx, taskId) {
     planId: findTask(project, taskId).currentPlanId,
   });
 }
+
+// AI 구독 사용량 한도. Forge 문제가 아니므로 고치지 않고 사람에게(기다리거나 엔진 바꾸기) 넘긴다.
+const aiLimitHit = (text) => /사용량 한도/.test(text ?? "");
 
 async function waitForRun(ctx, taskId, runId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
