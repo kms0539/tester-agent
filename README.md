@@ -18,7 +18,7 @@
 각 단계는 화면의 버튼과 같은 API를 같은 순서로 부르고, 끝난 뒤 Forge 상태가 기대대로인지 확인합니다.
 
 - QA가 "보완 필요"로 끝나면 사람처럼 **재개발**을 한 번 더 누릅니다.
-- AI가 코드 대신 **질문**만 남기면, 시나리오의 `clarification`을 요구사항에 덧붙여 **플랜부터 다시** 합니다.
+- AI가 코드 대신 **질문**만 남기면, 시나리오의 `clarification`으로 **범위 안 답변**을 남기고 같은 플랜으로 바로 이어 개발합니다.
 - 그래도 안 되면 그 단계에서 멈추고 보고서를 남깁니다.
 
 ## 막혔을 때 (`--fix`)
@@ -61,7 +61,7 @@ node bin/tester.mjs list                                 # 실행 기록
 
 테스트용 Forge는 평소 쓰는 Forge와 **다른 포트·다른 데이터 폴더**(`runs/<실행>/forge-data`)로 띄우므로 서로 섞이지 않습니다.
 `Ctrl+C`로 끊어도 Forge를 정리하고 끝나며, `resume`으로 이어 갈 수 있습니다.
-실행이 끝나면 `runs/<실행>/summary.md`에 결과·실패·자동 수정 내역이 남습니다.
+실행이 끝나면 `runs/<실행>/summary.md`에 결과·실패·자동 수정 내역과 단계별 시간이 남습니다.
 
 ## 시나리오
 
@@ -75,7 +75,7 @@ node bin/tester.mjs list                                 # 실행 기록
 | `verify.command` | Forge 안 실행 검증 명령 (Docker, 이 PC와 같은 Node 버전) |
 | `hostCheck` | 마지막에 이 PC에서 돌려 볼 명령 |
 | `publish` | `true`면 실행 폴더의 로컬 원격(`remote.git`)을 origin으로 두고 '커밋하고 push'까지 시험 |
-| `tasks[]` | `key`, `title`, `requirement`, `clarification`(AI 질문에 대한 답) |
+| `tasks[]` | `key`, `title`, `requirement`, `clarification`(AI 질문에 대한 답), `dependsOn`(선행 작업 key 목록), `files`(AI에게 줄 기존 파일 경로) |
 | `maxManualRework` | QA 보완 필요 시 재개발을 더 누를 횟수 (기본 1) |
 
 ## 파일

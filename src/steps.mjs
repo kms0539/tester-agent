@@ -5,7 +5,7 @@ import { exec, execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
-import { GoBack, StepFailure } from "./runner.mjs";
+import { StepFailure } from "./runner.mjs";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -119,6 +119,7 @@ function taskSteps(spec, scenario) {
       },
       check: async (ctx) => Boolean(taskId(ctx) && await current(ctx)),
     },
+    ...(spec.dependsOn?.length ? [dependencyStep(spec, taskId, current)] : []),
     {
       id: `task:${key}:plan`,
       title: `${spec.title} · AI 플랜 생성·채택`,
@@ -206,25 +207,29 @@ function taskSteps(spec, scenario) {
 // 원사이클을 돌린다. QA가 보완 필요로 끝나면 사람처럼 다시 누르고(재개발),
 // AI가 질문만 남기면 시나리오의 보충 설명으로 요구사항을 고쳐 플랜부터 다시 한다.
 export async function develop(ctx, key, spec, scenario) {
+  const state = ctx.data.tasks[key];
   const manualReworks = spec.maxManualRework ?? scenario.maxManualRework ?? 1;
+  let reworks = 0;
 
-  for (let attempt = 0; ; attempt++) {
-    const result = await runPipeline(ctx, ctx.data.tasks[key].id, spec.maxAutoRework ?? 1);
+  for (;;) {
+    const result = await runPipeline(ctx, state.id, spec.maxAutoRework ?? 1, spec.files ?? []);
 
     if (result.status === "succeeded" && result.latestQaOutcome === "pass") return;
 
-    if (/확인 질문/.test(result.summary ?? "")) {
-      const state = ctx.data.tasks[key];
-      if (spec.clarification && !state.clarified) {
-        await addClarification(ctx, state.id, spec.clarification);
-        state.clarified = true;
-        throw new GoBack(`task:${key}:plan`, "AI가 남긴 질문에 시나리오의 보충 설명으로 답했습니다");
+    // AI가 코드 대신 질문을 남겼다. 사람처럼 시나리오의 보충 설명으로 범위 안에서 답하고 같은 플랜으로 이어 간다.
+    if (result.question) {
+      if (!spec.clarification || state.clarified) {
+        throw new StepFailure("human", "AI가 코드 대신 확인 질문을 남겼습니다.", { question: result.question });
       }
-      throw new StepFailure("human", "AI가 코드 대신 확인 질문을 남겼습니다.", { questions: result.error });
+      await clarify(ctx, state.id, result.question, spec.clarification);
+      state.clarified = true;
+      ctx.log("  ↪ AI 질문에 시나리오의 보충 설명으로 답하고 이어서 개발");
+      continue;
     }
 
-    if (result.latestQaOutcome === "fail" && attempt < manualReworks) {
-      ctx.log(`  ↻ QA 보완 필요 → 재개발 (${attempt + 1}/${manualReworks})`);
+    if (result.latestQaOutcome === "fail" && reworks < manualReworks) {
+      reworks++;
+      ctx.log(`  ↻ QA 보완 필요 → 재개발 (${reworks}/${manualReworks})`);
       continue;
     }
 
@@ -236,20 +241,41 @@ export async function develop(ctx, key, spec, scenario) {
   }
 }
 
-async function addClarification(ctx, taskId, clarification) {
-  const { project, commit } = await read(ctx);
-  const task = findTask(project, taskId);
-  const requirement = task.requirements.find((item) => item.id === task.activeRequirementId);
-  await ctx.api.post("/forge/requirements/save", {
+// 선행 작업 연결. 화면의 '선행 작업' 체크와 같다. 플랜보다 먼저 둬야 플랜이 선행 작업을 근거로 쓴다.
+function dependencyStep(spec, taskId, current) {
+  const ids = (ctx) => spec.dependsOn.map((key) => ctx.data.tasks[key].id);
+  return {
+    id: `task:${spec.key}:depends`,
+    title: `${spec.title} · 선행 작업 연결 (${spec.dependsOn.join(", ")})`,
+    async run(ctx) {
+      const { commit } = await read(ctx);
+      await ctx.api.post("/forge/tasks/dependencies", {
+        projectId: ctx.data.projectId,
+        taskId: taskId(ctx),
+        expectedCommit: commit,
+        dependencies: ids(ctx),
+        reason: "시나리오의 작업 순서",
+      });
+    },
+    check: async (ctx) => {
+      const linked = (await current(ctx))?.dependencies ?? [];
+      return ids(ctx).every((id) => linked.includes(id));
+    },
+  };
+}
+
+async function clarify(ctx, taskId, question, answer) {
+  const { commit } = await read(ctx);
+  await ctx.api.post("/forge/tasks/clarify", {
     projectId: ctx.data.projectId,
-    expectedCommit: commit,
     taskId,
-    text: `${requirement.text}\n\n보충 설명:\n${clarification}`,
-    reason: "AI 확인 질문에 대한 답변",
+    expectedCommit: commit,
+    question,
+    answer,
   });
 }
 
-async function runPipeline(ctx, taskId, maxAutoRework) {
+async function runPipeline(ctx, taskId, maxAutoRework, files) {
   const { commit } = await read(ctx);
   const { jobId } = await ctx.api.post("/forge/pipeline/start", {
     projectId: ctx.data.projectId,
@@ -257,7 +283,7 @@ async function runPipeline(ctx, taskId, maxAutoRework) {
     expectedCommit: commit,
     engine: ctx.ai.engine,
     model: ctx.ai.model,
-    files: [],
+    files,
     references: [],
     reason: "승인한 플랜 구현",
     verifyImage: ctx.verifyImage,

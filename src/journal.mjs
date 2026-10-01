@@ -62,6 +62,13 @@ export async function openJournal(runDir, initial = {}) {
       await save();
     },
 
+    // 단계마다 실제로 걸린 시간을 더해 둔다. 실패 뒤 다시 한 시간도 포함하고, AI가 Forge를 고친 시간은 뺀다.
+    async addTime(stepId, ms) {
+      state.timings ??= {};
+      state.timings[stepId] = (state.timings[stepId] ?? 0) + ms;
+      await save();
+    },
+
     fixCount: (stepId) => state.fixes.filter((fix) => fix.stepId === stepId).length,
 
     async finish(status, note = "") {

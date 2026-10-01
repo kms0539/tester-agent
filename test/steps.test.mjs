@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GoBack, StepFailure } from "../src/runner.mjs";
+import { StepFailure } from "../src/runner.mjs";
 import { buildSteps, develop } from "../src/steps.mjs";
 
 const scenario = {
@@ -60,22 +60,25 @@ test("QA가 보완 필요로 끝나면 재개발을 한 번 더 누르고, 통�
   assert.equal(calls.filter((call) => call.path === "/forge/pipeline/start").length, 2);
 });
 
-test("AI가 질문만 남기면 보충 설명을 요구사항에 더하고 플랜부터 다시 하라고 알린다", async () => {
+test("AI가 질문만 남기면 보충 설명으로 범위 안 답을 주고 같은 플랜으로 이어 개발한다", async () => {
   const { api, calls } = fakeForge([
-    { status: "failed", latestQaOutcome: null, summary: "AI가 코드 대신 확인 질문을 남김 · 답변·플랜 보완 필요", error: "질문?" },
+    { status: "failed", latestQaOutcome: null, summary: "AI가 코드 대신 확인 질문을 남김 · 답변 필요", question: "질문?" },
+    { status: "succeeded", latestQaOutcome: "pass", summary: "AI QA 통과" },
   ]);
   const ctx = ctxWith(api);
 
-  await assert.rejects(develop(ctx, "a", scenario.tasks[0], scenario), (error) => error instanceof GoBack && error.stepId === "task:a:plan");
+  await develop(ctx, "a", scenario.tasks[0], scenario);
 
-  const saved = calls.find((call) => call.path === "/forge/requirements/save");
-  assert.match(saved.body.text, /보충 설명:\n보충/);
+  const answered = calls.find((call) => call.path === "/forge/tasks/clarify");
+  assert.equal(answered.body.question, "질문?");
+  assert.equal(answered.body.answer, "보충");
+  assert.equal(calls.filter((call) => call.path === "/forge/pipeline/start").length, 2);
   assert.equal(ctx.data.tasks.a.clarified, true);
 });
 
 test("보충 설명을 이미 썼는데도 질문이 오면 사람에게 넘긴다", async () => {
   const { api } = fakeForge([
-    { status: "failed", summary: "AI가 코드 대신 확인 질문을 남김", error: "또 질문" },
+    { status: "failed", summary: "AI가 코드 대신 확인 질문을 남김", question: "또 질문" },
   ]);
   const ctx = ctxWith(api);
   ctx.data.tasks.a.clarified = true;

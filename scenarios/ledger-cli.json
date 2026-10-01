@@ -1,0 +1,43 @@
+{
+  "name": "ledger-cli",
+  "goal": "은행 거래내역 CSV를 읽어 키워드 규칙으로 지출을 분류하고 월별 카테고리 합계를 보여 주는 개인 가계부 CLI. 외부 런타임 의존성 없이 Python 3.12 이상에서 동작해야 한다.",
+  "ai": {
+    "engine": "codex",
+    "model": "gpt-5.6-luna"
+  },
+  "stack": {
+    "language": "python",
+    "decision": "Python 3.12 이상(requires-python = \">=3.12\"). 표준 라이브러리만 쓰고 런타임 의존성은 없다. 패키징은 pyproject.toml + setuptools(build-backend = \"setuptools.build_meta\"), 소스는 src/ledger/ 패키지, 테스트는 tests/에 둔다. 개발 의존성은 [project.optional-dependencies] dev = [\"pytest==8.3.3\"] 하나다. 금액은 원 단위 정수(int)로 다룬다. 테스트는 python -m pytest로 실행한다."
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "import",
+      "title": "거래내역 CSV 읽기",
+      "requirement": "src/ledger/models.py에 @dataclass(frozen=True) Transaction(date: datetime.date, description: str, amount: int)를 만든다. amount는 지출이 음수, 입금이 양수다.\nsrc/ledger/importer.py에 load_transactions(path: str | os.PathLike) -> list[Transaction]을 만든다.\nCSV는 UTF-8(BOM 허용)이고 헤더는 '거래일,내용,금액'이다. 거래일은 YYYY-MM-DD, 금액은 '-12,000'처럼 쉼표가 들어갈 수 있다. 앞뒤 공백은 지운다.\n형식이 틀린 행이 있으면 ValueError를 던지고 메시지에 행 번호(헤더 다음 행이 2)를 넣는다.\n완료 기준: tests/test_importer.py에 정상 CSV, BOM 포함, 쉼표 금액, 잘못된 날짜 행의 행 번호 메시지 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "빈 줄은 건너뛴다. 금액 칸에 '원' 같은 단위는 오지 않는다. 열 순서는 헤더 이름을 기준으로 찾는다."
+    },
+    {
+      "key": "categorize",
+      "title": "키워드 규칙으로 분류",
+      "dependsOn": ["import"],
+      "files": ["src/ledger/models.py"],
+      "requirement": "src/ledger/categorize.py에 load_rules(path) -> dict[str, list[str]]와 categorize(transaction: Transaction, rules: dict[str, list[str]]) -> str을 만든다.\n규칙 파일은 UTF-8 JSON이며 {\"식비\": [\"배민\", \"스타벅스\"], \"교통\": [\"카카오T\"]} 형태다.\n분류는 거래 내용(description)에 키워드가 들어 있는지(대소문자 무시)로 판단하고, 규칙 파일에 적힌 카테고리 순서대로 처음 맞는 것을 고른다. 맞는 것이 없으면 '기타'를 돌려준다. 입금(amount > 0)은 항상 '수입'이다.\n완료 기준: tests/test_categorize.py에 키워드 일치, 대소문자 무시, 여러 규칙이 맞을 때 앞 순서 우선, 기타, 수입 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "키워드 앞뒤 공백은 지우고 비교한다. 규칙 JSON 형식이 틀리면 ValueError를 던진다."
+    },
+    {
+      "key": "report",
+      "title": "월별 리포트 CLI",
+      "dependsOn": ["import", "categorize"],
+      "files": ["pyproject.toml", "src/ledger/models.py", "src/ledger/importer.py", "src/ledger/categorize.py"],
+      "requirement": "src/ledger/report.py에 monthly_totals(transactions, rules, month: str) -> dict[str, int]를 만든다. month는 'YYYY-MM'이고 그 달 거래만 카테고리별로 합친다(지출은 음수 그대로).\nsrc/ledger/cli.py에 main(argv: list[str] | None = None) -> int를 만들고, 'ledger report <csv> --rules <json> --month YYYY-MM' 명령을 처리한다. 결과는 카테고리 이름 순으로 '카테고리<TAB>금액' 줄을 출력하고 마지막 줄에 '합계<TAB>금액'을 출력한다. 금액은 천 단위 쉼표를 넣는다(예: -12,000).\n입력 파일 오류(ValueError, OSError)는 stderr에 한 줄로 알리고 종료 코드 1을 돌려준다.\npyproject.toml에 [project.scripts] ledger = \"ledger.cli:main\"를 추가한다.\n완료 기준: tests/test_report.py에 월 필터·카테고리 합계 테스트, tests/test_cli.py에 출력 형식과 잘못된 CSV일 때 종료 코드 1 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "그 달 거래가 하나도 없으면 '합계<TAB>0' 한 줄만 출력하고 종료 코드 0이다. --month 형식이 틀리면 종료 코드 2(argparse 오류)다."
+    }
+  ]
+}

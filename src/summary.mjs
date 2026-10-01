@@ -9,6 +9,7 @@ export async function writeSummary(journal, scenario) {
   const minutes = Math.round((Date.parse(state.finishedAt ?? state.updatedAt) - Date.parse(state.startedAt)) / 60_000);
 
   const failures = state.failures.map((item, index) => `| ${index + 1} | ${item.title} | ${item.kind} | ${oneLine(item.message)} |`);
+  const timings = Object.entries(state.timings ?? {}).map(([id, ms]) => `| ${id} | ${(ms / 60_000).toFixed(1)} |`);
   const fixes = state.fixes.map((item) => `| #${item.failure} | ${oneLine(item.summary)} | ${item.commit ?? ""} | ${item.report ? relative(journal.runDir, item.report) : ""} |`);
 
   const text = [
@@ -26,9 +27,9 @@ export async function writeSummary(journal, scenario) {
     "",
     fixes.length ? ["| 실패 | 수정 | 커밋 | 보고서 |", "|---|---|---|---|", ...fixes].join("\n") : "없음",
     "",
-    "## 끝난 단계",
+    "## 단계별 시간 (분, AI의 Forge 수정 시간 제외)",
     "",
-    ...state.done.map((id) => `- ${id}`),
+    timings.length ? ["| 단계 | 분 |", "|---|---|", ...timings].join("\n") : "기록 없음",
     "",
   ].join("\n");
 

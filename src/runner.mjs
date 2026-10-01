@@ -41,6 +41,7 @@ export async function runSteps({ steps, journal, ctx, onFailure = null, maxFixes
       continue;
     }
 
+    const started = Date.now();
     try {
       if (step.check && await quietCheck(step, ctx)) {
         log(`✓ ${step.title} (이미 되어 있음)`);
@@ -51,9 +52,11 @@ export async function runSteps({ steps, journal, ctx, onFailure = null, maxFixes
           throw new StepFailure("forge", `‘${step.title}’ 뒤 Forge 상태가 기대와 다릅니다.`);
         }
       }
+      await journal.addTime(step.id, Date.now() - started);
       await journal.markDone(step.id);
       index++;
     } catch (error) {
+      await journal.addTime(step.id, Date.now() - started);
       if (error instanceof GoBack) {
         log(`↩ ${error.message} → ${error.stepId}부터 다시`);
         await journal.rewindTo(error.stepId, steps);
