@@ -105,6 +105,11 @@ function prompt(reportFile) {
 2. Forge 쪽 문제(동작 오류, 잘못된 안내·검증, AI 지시 규칙의 모순, 상태 처리 누락)면 필요한 만큼만 고치고, 그 상황을 잡는 테스트를 추가한다.
 3. 마치기 전에 npm test, npx tsc --noEmit -p ., npx eslint . 를 실행해 모두 통과시킨다.
 
+Forge 구조에서 알아 둘 것
+- 기준 규칙(basis.rules, FORGE_GENERAL_RULES)은 기준 저장 때 스냅샷으로 고정된다. 고쳐도 이미 만든 프로젝트에는 닿지 않는다.
+- QA_INSTRUCTIONS, GENERAL_DEVELOPMENT_INSTRUCTIONS 같은 AI 지시문은 실행할 때마다 코드에서 읽으므로 바로 반영된다.
+- 플랜·승인·체크포인트를 저장 시점에 고정하는 설계는 Forge의 원칙이다. 이 원칙을 바꾸지 말고, 원칙 안에서 가장 좁은 곳을 고친다.
+
 규칙
 - 이 저장소만 고친다. tester-agent와 테스트용 데이터는 건드리지 않는다.
 - 사람이 읽기 쉬운 코드로 쓴다. 긴 한 줄을 만들지 말고 의미 단위로 줄을 나눈다. 주석은 짧게 '왜'만 쓴다.
