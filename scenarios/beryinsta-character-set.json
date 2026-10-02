@@ -1,0 +1,33 @@
+{
+  "name": "beryinsta",
+  "repository": "https://github.com/kms0539/beryinsta.git",
+  "goal": "beryinsta에 사용자가 고른 캐릭터 이미지를 등록해 두고, 날마다 만드는 모든 게시물에서 같은 주인공을 쓰게 한다.",
+  "ai": {
+    "engine": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q && .venv/bin/beryinsta character --help",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "store",
+      "title": "캐릭터 저장소(character.py)와 character 명령",
+      "files": ["README.md", "src/beryinsta/cli.py", "src/beryinsta/config.py", "src/beryinsta/providers/agy.py", "src/beryinsta/providers/fake.py", "tests/test_cli.py"],
+      "requirement": "[배경 — 2026-10-02 이 PC에서 agy 1.2.14로 확인한 내용]\nagy의 generate_image는 ImagePaths(참고 이미지 경로 목록)를 받고, 참고 이미지 속 인물의 얼굴·머리·안경·옷을 다른 장면에서도 거의 그대로 유지한다(공원 벤치, 비 오는 승강장 장면으로 시험해 확인). 지금 beryinsta는 대본에서 정한 character 설명과 첫 장면 이미지를 참고로 쓴다. 이번에는 사용자가 직접 고른 캐릭터를 등록해 두고 날마다 같은 주인공을 쓰게 한다.\n\n만들 것:\n1. src/beryinsta/character.py: Character(description: str, images: tuple[Path, ...]) dataclass(frozen). CharacterStore(data_root): save(images, description=\"\")는 이미지를 <data_root>/characters/default/ref-1.<확장자>…로 복사하고 character.json({description, images, saved_at})을 쓴다. load() -> Character | None, clear(). 이미지는 1~4장, 각 10MB 이하, 확장자는 jpg·jpeg·png만 허용하고 어기면 ValueError(어떤 파일이 왜 안 되는지 메시지에 적는다). 다시 save하면 이전 캐릭터를 대체한다. description은 영어 300자 이하다.\n2. beryinsta character 명령(src/beryinsta/cli.py):\n- character set IMAGE [IMAGE ...] [--description TEXT]: 이미지를 등록한다.\n- character show: 등록된 캐릭터(설명, 이미지 경로)를 JSON으로 출력한다. 없으면 {\"character\": null}.\n- character clear: 등록을 지운다.\n- character create DESCRIPTION: 설정 generator(fake|agy)의 이미지 생성기로 캐릭터 시트(주인공 한 명, 정면·전신, 단색 배경, 글자 없음) 이미지 한 장을 9:16으로 만들어 description과 함께 등록한다. 생성기는 generate 명령과 같은 방식으로 주입한다. 마음에 안 들면 다시 실행하면 대체된다.\n오류는 stderr에 한 줄, 종료 코드 1이다. 캐릭터 이미지는 데이터 폴더(.beryinsta-data/) 안에만 두므로 git에 들어가지 않는다.\n완료 기준: tests/test_character.py에 저장·불러오기, 이미지 개수·크기·확장자 제한 오류, 다시 저장하면 대체, clear 테스트, tests/test_cli.py에 set·show·clear·create(가짜 생성기)와 잘못된 파일일 때 종료 코드 1 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "character create의 프롬프트에는 실존 인물·브랜드·로고 금지와 글자 없음을 넣는다. 가짜 생성기는 작은 더미 JPEG 파일을 만든다."
+    },
+    {
+      "key": "use",
+      "title": "등록한 캐릭터로 모든 장면 생성",
+      "dependsOn": ["store"],
+      "files": ["src/beryinsta/generate.py", "src/beryinsta/providers/agy.py", "src/beryinsta/character.py", "tests/test_generate.py", "tests/test_agy.py", "README.md"],
+      "requirement": "등록된 캐릭터가 있으면 beryinsta generate가 그 캐릭터로 모든 장면을 만든다.\n1. generate.py: CharacterStore.load()로 캐릭터를 읽는다. 있으면 대본의 character를 새로 정하지 않고 등록된 description을 쓴다(description이 비어 있으면 'the character shown in the attached reference images'). 모든 장면(첫 장면 포함, 점심 이미지도)의 참고 이미지는 등록된 이미지 전부이며, 첫 장면 이미지를 참고로 쓰는 기존 동작은 하지 않는다. 등록된 캐릭터가 없으면 지금처럼 대본이 정한 character와 첫 장면 이미지를 쓴다.\n2. AgyScriptWriter.write(topic, category, scene_count, *, character=None): character가 주어지면 대본 프롬프트에 '주인공은 이 character로 고정되어 있으니 새로 만들지 말고, 장면 설명은 행동·장소·분위기만 쓴다'를 넣고 반환하는 Script.character는 주어진 character 그대로다. 응답의 character 키는 무시한다.\n3. 이미지 프롬프트에 글자 금지를 강화한다: 'Do not write any words, letters or numbers anywhere in the image (papers, signs, screens, books, clothing) except the speech bubble; leave such surfaces blank or with unreadable scribbles.'\n4. script.json에 character와 character_source(\"registered\" | \"generated\")를 저장한다.\n5. README.md에 캐릭터 등록·사용법(set·create·show·clear), 같은 캐릭터를 매일 쓰는 방법, 이미지는 git에 들어가지 않는다는 점, 저작권이 있는 캐릭터나 실존 인물 사진은 쓰지 않는 게 안전하다는 주의를 적는다.\n완료 기준: tests/test_generate.py에 등록된 캐릭터가 있을 때 모든 장면 프롬프트에 그 description과 모든 장면이 등록 이미지 전부를 참고 이미지로 받는 것(첫 장면 이미지는 참고하지 않음), 없을 때 기존 동작, script.json의 character_source, 점심 이미지도 등록 캐릭터를 쓰는 것을 확인하고 tests/test_agy.py에 character를 준 대본 프롬프트와 글자 금지 문구 테스트가 있으며 python -m pytest가 통과한다.",
+      "clarification": "참고 이미지 경로는 절대 경로로 넘긴다. 등록 이미지가 있어도 has_reference 문구('attached reference image shows the main character')는 그대로 쓴다."
+    }
+  ]
+}
