@@ -1,0 +1,25 @@
+{
+  "name": "beryinsta",
+  "repository": "https://github.com/kms0539/beryinsta.git",
+  "goal": "beryinsta가 agy 이미지 생성 한도에 걸렸을 때 원인과 다시 시도할 시간을 분명히 알리게 한다.",
+  "ai": {
+    "engine": "claude",
+    "model": "claude-sonnet-5-5"
+  },
+  "verify": {
+    "image": "python:3.12-slim",
+    "command": "pip install -q -e \".[dev]\" && python -m pytest -q"
+  },
+  "hostCheck": "python3.13 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/python -m pytest -q",
+  "publish": true,
+  "maxManualRework": 1,
+  "tasks": [
+    {
+      "key": "quota",
+      "title": "이미지 생성 한도 안내",
+      "files": ["src/beryinsta/providers/agy.py", "src/beryinsta/generate.py", "tests/test_agy.py", "tests/test_generate.py"],
+      "requirement": "[실제 장애 — 2026-10-02 이 PC에서 agy 1.2.14로 재현]\n영상(장면 4개)을 연달아 만들다 보면 agy의 generate_image가 한도에 걸린다. 이때 agy는 status=SUCCESS로 끝나지만 response에 파일 경로 대신 아래 같은 문장이 온다.\n- 'Error: Quota exhausted (429 RESOURCE_EXHAUSTED). The image could not be generated; quota resets in approximately 12 minutes.'\n- 'Image generation failed: 429 RESOURCE_EXHAUSTED (Quota exhausted on model `gemini-3.1-flash-image`. Reset after ~12 minutes). No image file was saved.'\n지금은 AgyImageGenerator가 이를 '생성된 이미지 파일을 찾을 수 없음: ...'으로만 알려, 한도 문제인지 알 수 없다.\n\n고칠 것(src/beryinsta/providers/agy.py):\n1. AgyQuotaError(AgyError)를 만든다. 이미지 응답에 quota, exhausted, 429, resource_exhausted(대소문자 무시) 중 하나가 있고 이미지 파일 경로가 없으면 이 오류를 던진다. 메시지는 '이미지 생성 한도에 도달했다. 약 N분 뒤 다시 시도한다' 형식이고, 응답에서 'approximately N minutes' 또는 '~N minutes'의 N을 꺼낸다(없으면 '잠시 뒤').\n2. 대본 작성·이미지 생성 모두 기존 '사용량 한도' 감지(AgyError)는 그대로 둔다.\n3. generate(src/beryinsta/generate.py)는 AgyQuotaError일 때 상태에 status=failed, error에 그 메시지를 남기고 stderr에 한 줄로 알리고 종료 코드 1을 돌려준다(기존 AgyError 처리와 같다). 이미 만든 장면 이미지는 지우지 않고 media 폴더에 남기며, 다음 실행은 처음부터 다시 만든다.\n완료 기준: tests/test_agy.py에 위 두 응답 문장 각각에서 AgyQuotaError와 분 단위 메시지, 분 정보가 없는 한도 문장, 경로가 있으면 한도 단어가 있어도 정상 처리 테스트, tests/test_generate.py에 AgyQuotaError일 때 status=failed·종료 코드 1·이미 만든 이미지 보존 테스트가 있고 python -m pytest가 통과한다.",
+      "clarification": "한도 오류에서는 재시도하지 않는다(이미 한도라 바로 또 실패한다)."
+    }
+  ]
+}
